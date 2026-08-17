@@ -58,16 +58,23 @@ a{color:inherit;}
 /* ---------- app shell ---------- */
 #app{min-height:100vh;}
 .mobile-screen{min-height:100vh; background:var(--bg); max-width:520px; margin:0 auto; border-left:1px solid var(--line-soft); border-right:1px solid var(--line-soft);}
-.mobile-header{display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:5;}
+.mobile-header{display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:5; transition:background .15s;}
 .mobile-header h1{font-size:1rem; font-weight:700; margin:0; color:#fff;}
+.mobile-header .eyebrow{font-size:.68rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; margin:0 0 1px; display:block;}
+.mobile-header.tint-entrada{background:linear-gradient(180deg, rgba(0,131,62,.24), rgba(0,131,62,.05) 75%, var(--panel)); border-bottom-color:rgba(0,131,62,.4);}
+.mobile-header.tint-saida{background:linear-gradient(180deg, rgba(220,38,38,.24), rgba(220,38,38,.05) 75%, var(--panel)); border-bottom-color:rgba(220,38,38,.4);}
+.mobile-header.tint-entrada .eyebrow{color:var(--verde);}
+.mobile-header.tint-saida .eyebrow{color:#ff8080;}
+.header-acao-badge{width:32px; height:32px; border-radius:999px; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+.header-acao-badge.entrada{background:rgba(0,131,62,.24); color:var(--g300);}
+.header-acao-badge.saida{background:rgba(220,38,38,.24); color:#ff8a8a;}
 .icon-btn{background:none;border:none;color:var(--txt-dim);padding:4px;display:flex;align-items:center;border-radius:8px;}
 .icon-btn:hover{color:#fff;background:var(--panel-2);}
 .header-balanco-btn{display:flex; align-items:center; gap:.35rem; background:rgba(0,131,62,.16); border:1px solid rgba(0,131,62,.5); color:var(--verde); font-size:.72rem; font-weight:700; padding:.32rem .65rem; border-radius:999px; white-space:nowrap;}
 .header-balanco-btn:hover{background:rgba(0,131,62,.28);}
 
 .gestor-shell{display:flex; min-height:100vh;}
-.gestor-main{flex:1; min-width:0; overflow-x:hidden;}
-.sidebar{width:230px; background:var(--panel); border-right:1px solid var(--line); min-height:100vh; display:flex; flex-direction:column; flex-shrink:0;}
+.gestor-main{flex:1; min-width:0; overflow-x:hidden;}.sidebar{width:230px; background:var(--panel); border-right:1px solid var(--line); min-height:100vh; display:flex; flex-direction:column; flex-shrink:0;}
 .sidebar-brand{padding:18px 16px; border-bottom:1px solid var(--line);}
 .sidebar-brand .name{font-weight:700; color:#fff; font-size:.88rem;}
 .sidebar-brand .who{color:var(--txt-dim); font-size:.72rem; margin-top:2px;}
@@ -101,6 +108,8 @@ a{color:inherit;}
 
 /* ---------- cards / surfaces ---------- */
 .card{background:var(--panel); border:1px solid var(--line); border-radius:.9rem;}
+.card-acao-entrada{border-left:3px solid var(--verde);}
+.card-acao-saida{border-left:3px solid var(--erro);}
 .card-dashed{background:var(--panel); border:1.5px dashed #3a3a3a; border-radius:.9rem;}
 .divide-y > * + *{border-top:1px solid var(--line);}
 
@@ -187,6 +196,9 @@ tbody tr.row-low{background:rgba(220,38,38,.05);}
 /* ---------- movement / action screens ---------- */
 .qty-row{display:flex; align-items:center; gap:.7rem;}
 .qty-btn{width:44px; height:44px; border-radius:.6rem; background:var(--panel-2); border:1px solid #3a3a3a; color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+.qty-row-entrada .qty-btn{border-color:rgba(0,131,62,.5); background:rgba(0,131,62,.12);}
+.qty-row-saida .qty-btn{border-color:rgba(220,38,38,.5); background:rgba(220,38,38,.1);}
+.qty-row-saida .qty-input:focus{border-color:var(--erro);}
 .qty-input{flex:1; text-align:center; font-size:1.1rem;}
 
 /* ---------- etiqueta ---------- */
@@ -824,11 +836,17 @@ function SelecionarAcessoScreen(){
 /* ============ MOBILE HEADER / WRAP ============ */
 function mobileHeader(title, opts){
   opts = opts || {};
+  const acao = opts.acaoTint; // 'entrada' | 'saida' | undefined
+  const tintClass = acao ? `tint-${acao}` : '';
+  const tituloHtml = acao
+    ? `<div><span class="eyebrow">${acao==='entrada'?'Entrada de material':'Saída de material'}</span><h1>${esc(title)}</h1></div>`
+    : `<h1>${esc(title)}</h1>`;
   return `
-  <div class="mobile-header">
+  <div class="mobile-header ${tintClass}">
     <div class="flex items-center gap-2">
       ${opts.back ? `<button class="icon-btn" onclick="navTo('${opts.back}')">${icon('chevronLeft',20)}</button>` : ''}
-      <h1>${esc(title)}</h1>
+      ${acao ? `<span class="header-acao-badge ${acao}">${icon(acao==='entrada'?'arrowDownCircle':'arrowUpCircle',18)}</span>` : ''}
+      ${tituloHtml}
     </div>
     <div class="flex items-center gap-3">
       ${(opts.showUser!==false && state.user) ? `<span class="text-xs text-dim">${esc(state.user.nome)}</span>` : ''}
@@ -875,7 +893,6 @@ function OperatorHome(){
       ${(!anyEntrada || !anySaida) ? `<p class="text-aviso text-xs mt-4 flex items-center gap-1-5">${icon('alertTriangle',14)} Seu perfil tem movimentações bloqueadas pelo administrador.</p>` : ''}
       <div class="mt-6" style="display:flex;flex-direction:column;gap:.5rem">
         <button onclick="navTo('historico')" class="btn btn-ghost btn-block">${icon('history',18)} Ver histórico de movimentações</button>
-        ${!isOperadorPerfil(state.user.perfil) ? `<button onclick="navTo('gestor')" class="btn btn-ghost btn-block">${icon('layoutDashboard',18)} Voltar para visão gestor</button>` : ''}
       </div>
     </div>`;
   return mobileWrap('Início', inner, {logout:true});
@@ -921,7 +938,7 @@ function BuscarMaterialScreen(){
   const acaoAtiva = acao === 'entrada' ? state.toggles.entrada_estoque : state.toggles.saida_estoque;
   if(!acaoAtiva){
     const inner = `<div class="p-6 text-center"><p class="text-dim text-sm">${acao==='entrada'?'Entrada':'Saída'} de estoque foi desativada pelo administrador em Configurações.</p></div>`;
-    return mobileWrap(acao === 'entrada' ? 'Entrada' : 'Saída', inner, {back:'operador', showUser:false});
+    return mobileWrap(acao === 'entrada' ? 'Entrada' : 'Saída', inner, {back:'operador', showUser:false, acaoTint:acao});
   }
   const inner = `
     <div class="p-4">
@@ -940,7 +957,7 @@ function BuscarMaterialScreen(){
       </div>
       <div id="busca-resultados">${buscaResultadosHtml()}</div>
     </div>`;
-  return mobileWrap(acao === 'entrada' ? 'Entrada · Buscar material' : 'Saída · Buscar material', inner, {back:'operador', showUser:false});
+  return mobileWrap('Buscar material', inner, {back:'operador', showUser:false, acaoTint:acao});
 }
 
 /* ============ LEITOR DE CÂMERA (QR Code + código de barras EAN) ============
@@ -1188,7 +1205,7 @@ function movimentarInnerHtml(){
   const mat = getMat(state.ctx.materialId);
   const qtd = state.ctx._qtd || 1;
   return `
-    <div class="card p-4 mb-4">
+    <div class="card p-4 mb-4 card-acao-${acao}">
       <div class="flex items-center justify-between mb-3">
         <span class="text-white font-semibold">${esc(mat.nome)}</span>${badge(mat.tipo)}
       </div>
@@ -1205,7 +1222,7 @@ function movimentarInnerHtml(){
       </div>
     </div>
     <p class="text-dim text-xs mb-2">Quantidade a ${acao==='entrada'?'entrar':'sair'} (${mat.unidade})</p>
-    <div class="qty-row mb-4">
+    <div class="qty-row qty-row-${acao} mb-4">
       <button class="qty-btn" onclick="stepQtd(-1)">${icon('minus',18)}</button>
       <input id="mov-qtd" type="number" class="input qty-input" value="${qtd}" oninput="onQtyChange()">
       <button class="qty-btn" onclick="stepQtd(1)">${icon('plus',18)}</button>
@@ -1220,7 +1237,7 @@ function MovimentarScreen(){
   movSubmitError = '';
   recalcConsumos(mat, state.ctx._qtd || 1);
   const inner = `<div class="p-4">${movimentarInnerHtml()}</div>`;
-  return mobileWrap(acao==='entrada'?'Entrada':'Saída', inner, {back:'buscar', showUser:false});
+  return mobileWrap(mat.nome, inner, {back:'buscar', showUser:false, acaoTint:acao});
 }
 
 /* ============ ETIQUETA ============ */
@@ -1309,8 +1326,7 @@ function sidebarHtml(active){
         }).join('')}
       </div>
       <div class="sidebar-foot">
-        <button class="sidebar-link" onclick="navTo('operador')">${icon('home',16)} Ver como operador</button>
-        <button class="sidebar-link" onclick="doLogout()">${icon('logout',16)} Sair</button>
+        <button class="sidebar-link" onclick="voltarOuSair()">${icon('logout',16)} ${(state.user && state.user.acessos && state.user.acessos.length>1) ? 'Trocar acesso' : 'Sair'}</button>
       </div>
     </div>`;
 }
