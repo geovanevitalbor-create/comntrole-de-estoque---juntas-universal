@@ -321,14 +321,6 @@ const SUPABASE_URL = 'https://hgyfdanuhmffrglroemz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhneWZkYW51aG1mZnJnbHJvZW16Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3NzQ5MDksImV4cCI6MjEwMjM1MDkwOX0.iArAFEXpc-4kNLh_nL0ms8oZaxAaLxU_IPuP40hgs64';
 const sb = window.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// dispara quando alguém chega pelo link do e-mail de "esqueci minha senha"
-sb.auth.onAuthStateChange((event, session) => {
-  if(event === 'PASSWORD_RECOVERY'){
-    state.mostrarRedefinirSenha = true;
-    render();
-  }
-});
-
 /* ---------- tradução de erros comuns do Supabase Auth pra mensagens em pt-BR ---------- */
 function traduzErroAuth(error){
   const m = (error && error.message) || '';
@@ -337,6 +329,7 @@ function traduzErroAuth(error){
   if(m.includes('User already registered')) return 'Já existe uma conta com esse e-mail.';
   if(m.includes('Password should be at least')) return 'Senha muito curta — use pelo menos 6 caracteres.';
   if(m.includes('rate limit')) return 'Muitas tentativas em pouco tempo. Espere um instante e tente de novo.';
+  if(m.includes('Token has expired') || m.includes('otp_expired') || m.includes('Invalid OTP') || m.includes('Invalid token')) return 'Código expirado ou incorreto. Confira os dígitos ou peça um novo.';
   return m || 'Erro inesperado. Tente novamente.';
 }
 
@@ -505,6 +498,19 @@ async function doLogout(){
   loginTab = 'entrar'; loginPrefillEmail = ''; ccError = ''; loginStatusMsg = null;
   render();
 }
+// ícone da porta no cabeçalho mobile: se a pessoa tem mais de um acesso, volta pra tela de
+// escolher qual (sem tirar a sessão do Supabase); se só tem um acesso, é sair mesmo.
+function voltarOuSair(){
+  if(state.user && state.user.acessos && state.user.acessos.length > 1){
+    state.loginCandidate = { id: state.user.id, nome: state.user.nome, acessos: state.user.acessos };
+    state.user = null;
+    state.screen = 'operador';
+    state.ctx = {};
+    render();
+  } else {
+    doLogout();
+  }
+}
 function openModal(type, ctx){ modal = { type, ...ctx }; render(); }
 function closeModal(){
   if(modal && modal.type === 'scanner') pararScanner();
@@ -609,7 +615,7 @@ async function doLoginByEmail(){
   loginStatusMsg = null;
   const acessos = perfil.acessos || [];
   if(acessos.length === 1){
-    await entrarComoUsuario({ id: data.user.id, nome: perfil.nome, perfil: acessos[0] });
+    await entrarComoUsuario({ id: data.user.id, nome: perfil.nome, perfil: acessos[0], acessos });
   } else if(acessos.length > 1){
     state.loginCandidate = { id: data.user.id, nome: perfil.nome, acessos };
     render();
@@ -630,19 +636,42 @@ async function entrarComoUsuario(user){
   state.carregando = false;
   render();
 }
-function voltarParaLogin(){ state.loginCandidate = null; render(); }
-function esqueciSenha(){
-  const email = loginPrefillEmail.trim();
-  const el = document.getElementById('forgot-msg');
-  if(!email){ el.textContent = 'Digite seu e-mail no campo acima primeiro.'; return; }
-  el.textContent = 'Enviando...';
-  const urlAtual = window.location.href.split('#')[0].split('?')[0]; // sem hash/query velhos, aponta pra este mesmo arquivo
-  sb.auth.resetPasswordForEmail(email, { redirectTo: urlAtual }).then(({error}) => {
-    el.textContent = error ? traduzErroAuth(error) : 'Se esse e-mail existir, enviamos um link de redefinição de senha.';
-  });
+function abrirRedefinirSenha(){
+  rsStep = 'pedir';
+  rsError = '';
+  rsEmail = loginPrefillEmail.trim();
+  state.mostrarRedefinirSenha = true;
+  render();
+}
+function cancelarRedefinirSenha(){
+  state.mostrarRedefinirSenha = false;
+  rsStep = 'pedir';
+  rsError = '';
+  render();
+}
+async function enviarCodigoRecuperacao(){
+  const emailEl = document.getElementById('rs-email');
+  const email = (emailEl ? emailEl.value : rsEmail).trim();
+  if(!email){ rsError = 'Digite seu e-mail.'; render(); return; }
+  rsEmail = email;
+  rsError = '';
+  const btn = document.getElementById('btn-rs-enviar');
+  if(btn){ btn.disabled = true; btn.textContent = 'Enviando...'; }
+  const { error } = await sb.auth.resetPasswordForEmail(email);
+  if(error){
+    rsError = traduzErroAuth(error);
+    render();
+    return;
+  }
+  rsStep = 'codigo';
+  render();
 }
 
-/* ---- Tela de definir nova senha (chega aqui pelo link do e-mail de recuperação) ---- */
+/* ---- Tela de redefinir senha: pede e-mail, envia código, depois pede código + nova senha ----
+   Usa verifyOtp (código de 6 dígitos) em vez de link — mais confiável pra um arquivo HTML solto,
+   que não tem uma URL fixa pro Supabase redirecionar de volta. */
+let rsStep = 'pedir';
+let rsEmail = '';
 let rsError = '';
 function RedefinirSenhaScreen(){
   return `
@@ -650,32 +679,52 @@ function RedefinirSenhaScreen(){
     <div style="display:flex;flex-direction:column;align-items:center;width:100%;max-width:380px;margin:0 auto">
       <div style="margin-bottom:24px">${logoLockupHtml(38)}</div>
       <div class="login-card" style="width:100%">
-        <h2 class="text-white font-bold mb-1" style="font-size:1.05rem">Defina uma nova senha</h2>
-        <p class="text-dim text-sm mb-4">Você veio pelo link de redefinição. Escolha sua nova senha abaixo.</p>
-        <div class="field"><label>Nova senha</label><input id="rs-senha" type="password" class="input" placeholder="Pelo menos 6 caracteres"></div>
-        <div class="field"><label>Confirmar nova senha</label><input id="rs-senha2" type="password" class="input"></div>
-        ${rsError ? `<p class="text-erro text-xs mb-2">${esc(rsError)}</p>` : ''}
-        <button id="btn-rs" class="btn btn-primary btn-pill btn-block mt-2" onclick="confirmarNovaSenha()">Salvar nova senha</button>
+        ${rsStep === 'pedir' ? `
+          <h2 class="text-white font-bold mb-1" style="font-size:1.05rem">Esqueci minha senha</h2>
+          <p class="text-dim text-sm mb-4">Enviamos um código de verificação pro seu e-mail.</p>
+          <div class="field"><label>E-mail</label><input id="rs-email" type="email" class="input" value="${esc(rsEmail)}"></div>
+          ${rsError ? `<p class="text-erro text-xs mb-2">${esc(rsError)}</p>` : ''}
+          <button id="btn-rs-enviar" class="btn btn-primary btn-block mt-2" onclick="enviarCodigoRecuperacao()">Enviar código</button>
+          <button class="login-forgot mt-3" onclick="cancelarRedefinirSenha()">Voltar pro login</button>
+        ` : `
+          <h2 class="text-white font-bold mb-1" style="font-size:1.05rem">Digite o código</h2>
+          <p class="text-dim text-sm mb-4">Enviamos um código pra <b>${esc(rsEmail)}</b>. Confira também a caixa de spam — pode levar um minuto.</p>
+          <div class="field"><label>Código recebido</label><input id="rs-codigo" class="input" placeholder="000000" maxlength="8" style="letter-spacing:.3em;text-align:center;font-size:1.1rem"></div>
+          <div class="field"><label>Nova senha</label><input id="rs-senha" type="password" class="input" placeholder="Pelo menos 6 caracteres"></div>
+          <div class="field"><label>Confirmar nova senha</label><input id="rs-senha2" type="password" class="input"></div>
+          ${rsError ? `<p class="text-erro text-xs mb-2">${esc(rsError)}</p>` : ''}
+          <button id="btn-rs" class="btn btn-primary btn-block mt-2" onclick="confirmarNovaSenha()">Confirmar e trocar senha</button>
+          <button class="login-forgot mt-3" onclick="enviarCodigoRecuperacao()">Reenviar código</button>
+        `}
       </div>
     </div>
   </div>`;
 }
 async function confirmarNovaSenha(){
+  const codigo = document.getElementById('rs-codigo').value.trim();
   const s1 = document.getElementById('rs-senha').value;
   const s2 = document.getElementById('rs-senha2').value;
-  if(s1.length < 6){ rsError = 'Use pelo menos 6 caracteres.'; render(); return; }
+  if(!codigo){ rsError = 'Digite o código recebido por e-mail.'; render(); return; }
+  if(s1.length < 6){ rsError = 'Use pelo menos 6 caracteres na senha.'; render(); return; }
   if(s1 !== s2){ rsError = 'As senhas digitadas não são iguais.'; render(); return; }
   rsError = '';
   const btn = document.getElementById('btn-rs');
-  if(btn){ btn.disabled = true; btn.textContent = 'Salvando...'; }
-  const { error } = await sb.auth.updateUser({ password: s1 });
-  if(error){
-    rsError = traduzErroAuth(error);
+  if(btn){ btn.disabled = true; btn.textContent = 'Confirmando...'; }
+  const { error: otpError } = await sb.auth.verifyOtp({ email: rsEmail, token: codigo, type: 'recovery' });
+  if(otpError){
+    rsError = 'Código inválido ou expirado: ' + traduzErroAuth(otpError);
+    render();
+    return;
+  }
+  const { error: updError } = await sb.auth.updateUser({ password: s1 });
+  if(updError){
+    rsError = traduzErroAuth(updError);
     render();
     return;
   }
   await sb.auth.signOut();
   state.mostrarRedefinirSenha = false;
+  rsStep = 'pedir';
   loginStatusMsg = { type:'erro', msg:'Senha alterada! Entre novamente com a nova senha.' };
   render();
 }
@@ -729,8 +778,7 @@ function LoginScreen(){
           </div>
           <div id="login-status">${loginStatusHtml()}</div>
           <button class="btn btn-primary btn-pill btn-block mt-2" onclick="doLoginByEmail()">Entrar</button>
-          <button class="login-forgot" onclick="esqueciSenha()">Esqueci minha senha</button>
-          <div id="forgot-msg" class="footnote text-center mt-1"></div>
+          <button class="login-forgot" onclick="abrirRedefinirSenha()">Esqueci minha senha</button>
         ` : `
           <div class="field"><label>Nome completo</label><input id="cc-nome" class="input" placeholder="Seu nome"></div>
           <div class="field"><label>E-mail corporativo</label><input id="cc-email" type="email" class="input" placeholder="seu@universaljuntas.com.br"></div>
@@ -762,13 +810,13 @@ function SelecionarAcessoScreen(){
       <p class="text-dim text-sm mb-8">Você tem mais de um acesso. Selecione como deseja entrar</p>
       <div class="acesso-grid">
         ${opts.map(p => `
-          <button onclick='entrarComoUsuario({id:${JSON.stringify(c.id)},nome:${JSON.stringify(c.nome)},perfil:"${p.key}"})' class="acesso-card">
+          <button onclick='entrarComoUsuario({id:${JSON.stringify(c.id)},nome:${JSON.stringify(c.nome)},perfil:"${p.key}",acessos:${JSON.stringify(c.acessos)}})' class="acesso-card">
             <span class="acesso-ic">${icon(p.icon,26)}</span>
             <span class="acesso-title">${esc(p.label)}</span>
             <span class="acesso-desc">${esc(p.desc)}</span>
           </button>`).join('')}
       </div>
-      <button class="login-forgot mt-6" onclick="voltarParaLogin()">Voltar</button>
+      <button class="login-forgot mt-6" onclick="doLogout()">${icon('logout',14)} Sair</button>
     </div>
   </div>`;
 }
@@ -784,7 +832,7 @@ function mobileHeader(title, opts){
     </div>
     <div class="flex items-center gap-3">
       ${(opts.showUser!==false && state.user) ? `<span class="text-xs text-dim">${esc(state.user.nome)}</span>` : ''}
-      ${opts.logout ? `<button class="icon-btn" onclick="doLogout()">${icon('logout',17)}</button>` : ''}
+      ${opts.logout ? `<button class="icon-btn" onclick="voltarOuSair()" title="${(state.user && state.user.acessos && state.user.acessos.length>1) ? 'Trocar acesso' : 'Sair'}">${icon('logout',17)}</button>` : ''}
     </div>
   </div>`;
 }
@@ -2438,7 +2486,7 @@ async function initApp(){
       if(!error && perfil && perfil.status === 'aprovado' && perfil.acessos && perfil.acessos.length > 0){
         const acessos = perfil.acessos;
         if(acessos.length === 1){
-          state.user = { id: session.user.id, nome: perfil.nome, perfil: acessos[0] };
+          state.user = { id: session.user.id, nome: perfil.nome, perfil: acessos[0], acessos };
           state.screen = isOperadorPerfil(acessos[0]) ? 'operador' : 'gestor';
           await carregarDadosIniciais();
         } else {
