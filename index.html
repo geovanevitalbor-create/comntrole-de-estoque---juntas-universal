@@ -1343,7 +1343,7 @@ function sidebarHtml(active){
         <div class="who">${esc(state.user.nome)} · ${PROFILES.find(p=>p.key===state.user.perfil)?.label}</div>
       </div>
       <div class="sidebar-nav">
-        ${SIDEBAR_ITEMS.map(it => {
+        ${SIDEBAR_ITEMS.filter(it => it.key !== 'config' || state.user.perfil === 'admin').map(it => {
           const badgeN = it.key==='config' ? pendCount : it.key==='inventario' ? pendBalanco : it.key==='alertas' ? pendAlertas : 0;
           return `<button class="sidebar-link ${active===it.key?'active':''}" onclick="navTo('${it.key}')">${icon(it.icon,16)} ${it.label} ${badgeN>0 ? `<span class="sidebar-badge">${badgeN}</span>` : ''}</button>`;
         }).join('')}
@@ -1583,23 +1583,23 @@ function materiaisResultadosHtml(){
   const tipoF = document.getElementById('mat-tipo-filtro')?.value || materiaisTipoFiltro;
   const filtered = state.materials.filter(m =>
     (tipoF === 'total' || m.tipo === tipoF) &&
-    (!q || m.nome.toLowerCase().includes(q) || m.id.toLowerCase().includes(q))
+    (!q || m.nome.toLowerCase().includes(q) || m.id.toLowerCase().includes(q) || [m.setor,m.rua,m.bloco].some(v=>v&&v.toLowerCase().includes(q)))
   );
   const readOnly = isOperadorPerfil(state.user.perfil);
   return `
     <div class="table-wrap card">
       <table>
-        <thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Categoria</th><th class="text-right">Saldo</th><th class="text-right">Valor unit.</th><th class="text-right">Ações</th></tr></thead>
+        <thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Localização</th><th class="text-right">Saldo</th><th class="text-right">Valor unit.</th><th class="text-right">Ações</th></tr></thead>
         <tbody>
           ${filtered.map(m => `
-            <tr class="${m.saldo < m.estoqueMinimo ? 'row-low' : ''}">
+            <tr class="row-clickable ${m.saldo < m.estoqueMinimo ? 'row-low' : ''}" onclick="abrirDetalhesMaterial('${m.id}')">
               <td class="text-dim">${m.id}</td>
               <td class="text-white">${esc(m.nome)}</td>
               <td>${badge(m.tipo)}</td>
-              <td class="text-dim">${esc(m.categoria)}</td>
+              <td class="text-dim">${[m.setor,m.rua,m.bloco].some(Boolean) ? `Setor ${esc(m.setor||'—')} · Rua ${esc(m.rua||'—')} · Bloco ${esc(m.bloco||'—')}` : '—'}</td>
               <td class="text-right ${m.saldo < m.estoqueMinimo ? 'text-erro' : ''}">${fmtNum(m.saldo)} ${m.unidade}</td>
               <td class="text-right">${fmtMoney(m.valorUnitario)}</td>
-              <td class="text-right">
+              <td class="text-right" onclick="event.stopPropagation()">
                 <button class="icon-btn" onclick="openModal('verEtiqueta',{materialId:'${m.id}'})" title="Gerar etiqueta">${icon('printer',15)}</button>
                 ${readOnly ? '' : `<button class="icon-btn" onclick="openEditMaterial('${m.id}')">${icon('edit',15)}</button>`}
               </td>
@@ -2341,6 +2341,9 @@ async function togglePermission(perfil, key){
   }
 }
 function ConfigScreen(){
+  if(state.user.perfil !== 'admin'){
+    return `<div class="p-6"><h1 class="text-xl font-bold text-white mb-2">Configurações</h1><p class="text-dim text-sm">Essa área é exclusiva do perfil administrador.</p></div>`;
+  }
   const pendCount = state.cadastros.filter(c => c.status === 'pendente').length;
   return `
     <div class="p-6">
