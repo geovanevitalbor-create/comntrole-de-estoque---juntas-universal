@@ -321,6 +321,14 @@ const SUPABASE_URL = 'https://hgyfdanuhmffrglroemz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhneWZkYW51aG1mZnJnbHJvZW16Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3NzQ5MDksImV4cCI6MjEwMjM1MDkwOX0.iArAFEXpc-4kNLh_nL0ms8oZaxAaLxU_IPuP40hgs64';
 const sb = window.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// dispara quando alguém chega pelo link do e-mail de "esqueci minha senha"
+sb.auth.onAuthStateChange((event, session) => {
+  if(event === 'PASSWORD_RECOVERY'){
+    state.mostrarRedefinirSenha = true;
+    render();
+  }
+});
+
 /* ---------- tradução de erros comuns do Supabase Auth pra mensagens em pt-BR ---------- */
 function traduzErroAuth(error){
   const m = (error && error.message) || '';
@@ -459,6 +467,7 @@ let state = window.state = {
   permissions: JSON.parse(JSON.stringify(defaultPermissions)),
   carregando: false,
   dadosErro: null,
+  mostrarRedefinirSenha: false,
 };
 let modal = null;          // { type, ...ctx } — transiente, não exposto em window (seria só um snapshot)
 let currentConsumos = [];  // transient, tela Movimentar (produto acabado)
@@ -506,6 +515,7 @@ function toggleSidebar(){ sidebarOpen = !sidebarOpen; render(); }
 
 /* ============ ROTEAMENTO ============ */
 function renderScreen(){
+  if(state.mostrarRedefinirSenha) return RedefinirSenhaScreen();
   if(!state.user){
     if(state.loginCandidate) return SelecionarAcessoScreen();
     return LoginScreen();
@@ -626,9 +636,48 @@ function esqueciSenha(){
   const el = document.getElementById('forgot-msg');
   if(!email){ el.textContent = 'Digite seu e-mail no campo acima primeiro.'; return; }
   el.textContent = 'Enviando...';
-  sb.auth.resetPasswordForEmail(email).then(({error}) => {
+  const urlAtual = window.location.href.split('#')[0].split('?')[0]; // sem hash/query velhos, aponta pra este mesmo arquivo
+  sb.auth.resetPasswordForEmail(email, { redirectTo: urlAtual }).then(({error}) => {
     el.textContent = error ? traduzErroAuth(error) : 'Se esse e-mail existir, enviamos um link de redefinição de senha.';
   });
+}
+
+/* ---- Tela de definir nova senha (chega aqui pelo link do e-mail de recuperação) ---- */
+let rsError = '';
+function RedefinirSenhaScreen(){
+  return `
+  <div class="login-wrap">
+    <div style="display:flex;flex-direction:column;align-items:center;width:100%;max-width:380px;margin:0 auto">
+      <div style="margin-bottom:24px">${logoLockupHtml(38)}</div>
+      <div class="login-card" style="width:100%">
+        <h2 class="text-white font-bold mb-1" style="font-size:1.05rem">Defina uma nova senha</h2>
+        <p class="text-dim text-sm mb-4">Você veio pelo link de redefinição. Escolha sua nova senha abaixo.</p>
+        <div class="field"><label>Nova senha</label><input id="rs-senha" type="password" class="input" placeholder="Pelo menos 6 caracteres"></div>
+        <div class="field"><label>Confirmar nova senha</label><input id="rs-senha2" type="password" class="input"></div>
+        ${rsError ? `<p class="text-erro text-xs mb-2">${esc(rsError)}</p>` : ''}
+        <button id="btn-rs" class="btn btn-primary btn-pill btn-block mt-2" onclick="confirmarNovaSenha()">Salvar nova senha</button>
+      </div>
+    </div>
+  </div>`;
+}
+async function confirmarNovaSenha(){
+  const s1 = document.getElementById('rs-senha').value;
+  const s2 = document.getElementById('rs-senha2').value;
+  if(s1.length < 6){ rsError = 'Use pelo menos 6 caracteres.'; render(); return; }
+  if(s1 !== s2){ rsError = 'As senhas digitadas não são iguais.'; render(); return; }
+  rsError = '';
+  const btn = document.getElementById('btn-rs');
+  if(btn){ btn.disabled = true; btn.textContent = 'Salvando...'; }
+  const { error } = await sb.auth.updateUser({ password: s1 });
+  if(error){
+    rsError = traduzErroAuth(error);
+    render();
+    return;
+  }
+  await sb.auth.signOut();
+  state.mostrarRedefinirSenha = false;
+  loginStatusMsg = { type:'erro', msg:'Senha alterada! Entre novamente com a nova senha.' };
+  render();
 }
 
 async function submitCriarConta(){
